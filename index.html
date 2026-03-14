@@ -1,0 +1,169 @@
+from flask import Flask, request, jsonify, render_template_string
+import subprocess
+import os
+
+app = Flask(__name__)
+
+HTML_PAGE = """
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Smart City Road Monitoring</title>
+
+<style>
+
+body{
+font-family: Arial;
+background:#0f172a;
+color:white;
+text-align:center;
+}
+
+h1{
+margin-top:40px;
+}
+
+.container{
+display:flex;
+justify-content:center;
+gap:40px;
+margin-top:50px;
+}
+
+.card{
+background:#1e293b;
+padding:30px;
+border-radius:10px;
+width:350px;
+}
+
+button{
+margin-top:20px;
+padding:12px 20px;
+background:#38bdf8;
+border:none;
+border-radius:5px;
+font-size:16px;
+cursor:pointer;
+}
+
+button:hover{
+background:#0ea5e9;
+}
+
+input{
+margin-top:10px;
+}
+
+#result{
+margin-top:20px;
+font-size:18px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h1>🚧 Smart City Pothole Detection Dashboard</h1>
+
+<div class="container">
+
+<div class="card">
+
+<h2>Upload Road Image</h2>
+
+<input type="file" id="imageUpload">
+
+<br>
+
+<button onclick="analyze()">Analyze Road</button>
+
+</div>
+
+<div class="card">
+
+<h2>Detection Result</h2>
+
+<p id="result">Waiting for analysis...</p>
+
+</div>
+
+</div>
+
+<script>
+
+async function analyze(){
+
+let fileInput = document.getElementById("imageUpload")
+
+if(fileInput.files.length === 0){
+alert("Please upload an image")
+return
+}
+
+let formData = new FormData()
+
+formData.append("image", fileInput.files[0])
+
+document.getElementById("result").innerText = "Analyzing road..."
+
+let response = await fetch("/detect",{
+method:"POST",
+body:formData
+})
+
+let data = await response.json()
+
+document.getElementById("result").innerText = data.result
+
+}
+
+</script>
+
+</body>
+</html>
+"""
+
+UPLOAD_FOLDER = "uploads"
+
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+@app.route("/")
+def home():
+    return render_template_string(HTML_PAGE)
+
+@app.route("/detect", methods=["POST"])
+def detect():
+
+    if "image" not in request.files:
+        return jsonify({"result":"No file uploaded"})
+
+    file = request.files["image"]
+
+    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(filepath)
+
+    try:
+
+        result = subprocess.run(
+            ["python", "potholes.py", filepath],
+            capture_output=True,
+            text=True
+        )
+
+        output = result.stdout
+
+        if output.strip() == "":
+            output = "No potholes detected."
+
+        return jsonify({"result":output})
+
+    except Exception as e:
+        return jsonify({"result":str(e)})
+
+if __name__ == "__main__":
+    app.run(debug=True)
