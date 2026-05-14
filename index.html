@@ -1,169 +1,429 @@
-from flask import Flask, request, jsonify, render_template_string
-import subprocess
-import os
-
-app = Flask(__name__)
-
-HTML_PAGE = """
+```html
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-<title>Smart City Road Monitoring</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Vigil Road Dashboard</title>
 
-<style>
+  <!-- TensorFlow + Teachable Machine -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest"></script>
 
-body{
-font-family: Arial;
-background:#0f172a;
-color:white;
-text-align:center;
-}
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: Arial, sans-serif;
+    }
 
-h1{
-margin-top:40px;
-}
+    body {
+      background: #f4f9ff;
+      color: #1b1b1b;
+      min-height: 100vh;
+    }
 
-.container{
-display:flex;
-justify-content:center;
-gap:40px;
-margin-top:50px;
-}
+    .container {
+      width: 95%;
+      max-width: 1200px;
+      margin: 30px auto;
+    }
 
-.card{
-background:#1e293b;
-padding:30px;
-border-radius:10px;
-width:350px;
-}
+    .header {
+      background: white;
+      padding: 25px;
+      border-radius: 15px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 25px;
+      border-left: 8px solid #4da6ff;
+    }
 
-button{
-margin-top:20px;
-padding:12px 20px;
-background:#38bdf8;
-border:none;
-border-radius:5px;
-font-size:16px;
-cursor:pointer;
-}
+    .header h1 {
+      color: #1e3a5f;
+      font-size: 32px;
+    }
 
-button:hover{
-background:#0ea5e9;
-}
+    .header p {
+      color: #666;
+      margin-top: 5px;
+    }
 
-input{
-margin-top:10px;
-}
+    .dashboard {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 25px;
+    }
 
-#result{
-margin-top:20px;
-font-size:18px;
-}
+    .card {
+      background: white;
+      border-radius: 15px;
+      padding: 25px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+    }
 
-</style>
+    .card h2 {
+      margin-bottom: 20px;
+      color: #1e3a5f;
+    }
 
+    .upload-box {
+      border: 2px dashed #4da6ff;
+      padding: 40px;
+      border-radius: 15px;
+      text-align: center;
+      background: #f8fbff;
+    }
+
+    input[type="file"] {
+      margin-top: 15px;
+    }
+
+    #preview {
+      width: 100%;
+      max-height: 350px;
+      object-fit: cover;
+      border-radius: 15px;
+      margin-top: 20px;
+      display: none;
+    }
+
+    .result-box {
+      margin-top: 20px;
+    }
+
+    .result-item {
+      margin-bottom: 18px;
+    }
+
+    .label {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-weight: bold;
+    }
+
+    .progress {
+      width: 100%;
+      height: 20px;
+      background: #e5eef9;
+      border-radius: 20px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      border-radius: 20px;
+      transition: 0.5s;
+    }
+
+    .pothole-bar {
+      background: #ff6b6b;
+    }
+
+    .normal-bar {
+      background: #4da6ff;
+    }
+
+    .severity-box {
+      margin-top: 25px;
+      padding: 20px;
+      border-radius: 12px;
+      font-size: 18px;
+      font-weight: bold;
+      text-align: center;
+    }
+
+    .low {
+      background: #dff6dd;
+      color: #267326;
+    }
+
+    .moderate {
+      background: #fff4cc;
+      color: #8a6d00;
+    }
+
+    .high {
+      background: #ffd6d6;
+      color: #b30000;
+    }
+
+    .report-details {
+      line-height: 2;
+      font-size: 16px;
+    }
+
+    .status-tag {
+      display: inline-block;
+      padding: 8px 15px;
+      border-radius: 20px;
+      background: #e6f2ff;
+      color: #0066cc;
+      font-weight: bold;
+    }
+
+    .footer {
+      margin-top: 25px;
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+    }
+
+    button {
+      background: #4da6ff;
+      color: white;
+      border: none;
+      padding: 12px 22px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 15px;
+      transition: 0.3s;
+    }
+
+    button:hover {
+      background: #2d8cff;
+    }
+
+    @media(max-width: 900px) {
+      .dashboard {
+        grid-template-columns: 1fr;
+      }
+
+      .header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+    }
+  </style>
 </head>
 
 <body>
 
-<h1>🚧 Smart City Pothole Detection Dashboard</h1>
+  <div class="container">
 
-<div class="container">
+    <div class="header">
+      <div>
+        <h1>Vigil Road</h1>
+        <p>AI-Based Pothole Detection & Road Monitoring Dashboard</p>
+      </div>
 
-<div class="card">
+      <div class="status-tag">
+        Local Authority Monitoring System
+      </div>
+    </div>
 
-<h2>Upload Road Image</h2>
+    <div class="dashboard">
 
-<input type="file" id="imageUpload">
+      <!-- Upload Section -->
+      <div class="card">
+        <h2>Road Image Analysis</h2>
 
-<br>
+        <div class="upload-box">
+          <p>Upload a road image for pothole detection</p>
 
-<button onclick="analyze()">Analyze Road</button>
+          <input type="file" id="imageUpload" accept="image/*"/>
 
-</div>
+          <br/>
 
-<div class="card">
+          <button onclick="predictImage()">Analyze Image</button>
 
-<h2>Detection Result</h2>
+          <img id="preview" />
+        </div>
+      </div>
 
-<p id="result">Waiting for analysis...</p>
+      <!-- Report Section -->
+      <div class="card">
+        <h2>Detection Report</h2>
 
-</div>
+        <div class="report-details">
+          <p><strong>Report ID:</strong> <span id="reportId"></span></p>
+          <p><strong>Date:</strong> <span id="date"></span></p>
+          <p><strong>Time:</strong> <span id="time"></span></p>
+          <p><strong>Status:</strong> <span id="actionStatus">Waiting for Analysis</span></p>
+        </div>
 
-</div>
+        <div class="result-box">
 
-<script>
+          <div class="result-item">
+            <div class="label">
+              <span>Potholes</span>
+              <span id="potholePercent">0%</span>
+            </div>
 
-async function analyze(){
+            <div class="progress">
+              <div class="progress-bar pothole-bar" id="potholeBar"></div>
+            </div>
+          </div>
 
-let fileInput = document.getElementById("imageUpload")
+          <div class="result-item">
+            <div class="label">
+              <span>No Potholes</span>
+              <span id="normalPercent">0%</span>
+            </div>
 
-if(fileInput.files.length === 0){
-alert("Please upload an image")
-return
-}
+            <div class="progress">
+              <div class="progress-bar normal-bar" id="normalBar"></div>
+            </div>
+          </div>
 
-let formData = new FormData()
+        </div>
 
-formData.append("image", fileInput.files[0])
+        <div class="severity-box low" id="severityBox">
+          Upload an image to begin analysis.
+        </div>
 
-document.getElementById("result").innerText = "Analyzing road..."
+      </div>
 
-let response = await fetch("/detect",{
-method:"POST",
-body:formData
-})
+    </div>
 
-let data = await response.json()
+    <div class="footer">
+      Vigil Road © 2026 | Smart AI Infrastructure Monitoring System
+    </div>
 
-document.getElementById("result").innerText = data.result
+  </div>
 
-}
+  <script>
+    const URL = "https://teachablemachine.withgoogle.com/models/XZiY88SdC/";
 
-</script>
+    let model;
+
+    async function loadModel() {
+      const modelURL = URL + "model.json";
+      const metadataURL = URL + "metadata.json";
+
+      model = await tmImage.load(modelURL, metadataURL);
+
+      console.log("Model Loaded Successfully");
+    }
+
+    loadModel();
+
+    // Generate Report ID
+    const reportId = "VR-" + Math.floor(Math.random() * 1000000);
+    document.getElementById("reportId").innerText = reportId;
+
+    // Set Date and Time
+    const now = new Date();
+
+    document.getElementById("date").innerText =
+      now.toLocaleDateString();
+
+    document.getElementById("time").innerText =
+      now.toLocaleTimeString();
+
+    // Preview Image
+    document.getElementById("imageUpload").addEventListener("change", function(event) {
+
+      const file = event.target.files[0];
+
+      if(file) {
+        const reader = new FileReader();
+
+        reader.onload = function(e) {
+          const preview = document.getElementById("preview");
+
+          preview.src = e.target.result;
+          preview.style.display = "block";
+        };
+
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // Prediction Function
+    async function predictImage() {
+
+      const image = document.getElementById("preview");
+
+      if(!image.src) {
+        alert("Please upload an image first.");
+        return;
+      }
+
+      const prediction = await model.predict(image);
+
+      let potholeProbability = 0;
+      let normalProbability = 0;
+
+      prediction.forEach(pred => {
+
+        const className = pred.className.toLowerCase();
+
+        if(className.includes("pothole")) {
+          potholeProbability = pred.probability * 100;
+        } else {
+          normalProbability = pred.probability * 100;
+        }
+      });
+
+      potholeProbability = potholeProbability.toFixed(2);
+      normalProbability = normalProbability.toFixed(2);
+
+      // Update UI
+      document.getElementById("potholePercent").innerText =
+        potholeProbability + "%";
+
+      document.getElementById("normalPercent").innerText =
+        normalProbability + "%";
+
+      document.getElementById("potholeBar").style.width =
+        potholeProbability + "%";
+
+      document.getElementById("normalBar").style.width =
+        normalProbability + "%";
+
+      // Severity Logic
+      const severityBox = document.getElementById("severityBox");
+      const actionStatus = document.getElementById("actionStatus");
+
+      if(potholeProbability >= 1 && potholeProbability < 50) {
+
+        severityBox.className = "severity-box low";
+
+        severityBox.innerHTML =
+          "Low Severity Detected<br/>Road condition is acceptable. No urgent action required.";
+
+        actionStatus.innerText = "Minor Issue";
+
+      }
+      else if(potholeProbability >= 50 && potholeProbability < 75) {
+
+        severityBox.className = "severity-box moderate";
+
+        severityBox.innerHTML =
+          "Moderate Severity Detected<br/>Maintenance is recommended soon.";
+
+        actionStatus.innerText = "Moderate Attention Required";
+
+      }
+      else if(potholeProbability >= 75) {
+
+        severityBox.className = "severity-box high";
+
+        severityBox.innerHTML =
+          "Critical Severity Detected<br/>Immediate road repair action required.";
+
+        actionStatus.innerText = "Immediate Action Required";
+
+      }
+      else {
+
+        severityBox.className = "severity-box low";
+
+        severityBox.innerHTML =
+          "No Significant Potholes Detected.";
+
+        actionStatus.innerText = "Road Condition Normal";
+      }
+    }
+  </script>
 
 </body>
 </html>
-"""
-
-UPLOAD_FOLDER = "uploads"
-
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-
-@app.route("/")
-def home():
-    return render_template_string(HTML_PAGE)
-
-@app.route("/detect", methods=["POST"])
-def detect():
-
-    if "image" not in request.files:
-        return jsonify({"result":"No file uploaded"})
-
-    file = request.files["image"]
-
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(filepath)
-
-    try:
-
-        result = subprocess.run(
-            ["python", "potholes.py", filepath],
-            capture_output=True,
-            text=True
-        )
-
-        output = result.stdout
-
-        if output.strip() == "":
-            output = "No potholes detected."
-
-        return jsonify({"result":output})
-
-    except Exception as e:
-        return jsonify({"result":str(e)})
-
-if __name__ == "__main__":
-    app.run(debug=True)
+```
